@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { resolve, join } from 'path';
 
-const VAULT_PLUGIN_DIR = resolve('C:/Users/zj199/Documents/ff/.obsidian/plugins/obsidian-stp-viewer');
+const VAULT_PLUGIN_DIR = resolve('C:/Users/zj199/Documents/ff/.obsidian/plugins/stp-viewer');
 
 if (!existsSync(VAULT_PLUGIN_DIR)) {
   mkdirSync(VAULT_PLUGIN_DIR, { recursive: true });

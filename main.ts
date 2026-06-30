@@ -20,7 +20,7 @@ export default class STPViewerPlugin extends Plugin {
 
     // Path needed by viewer.ts to load occt-import-js WASM module
     (window as any).__STP_VIEWER_DIR__ =
-      this.app.vault.adapter.getBasePath() + '/.obsidian/plugins/obsidian-stp-viewer/';
+      this.app.vault.adapter.getBasePath() + '/.obsidian/plugins/stp-viewer/';
 
     console.log('STP Viewer plugin loaded');
   }
