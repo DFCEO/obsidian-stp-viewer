@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-stp-viewer",
+  "version": "0.1.0",
+  "description": "3D STEP file previewer for Obsidian — powered by OpenCascade WASM + Three.js",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "install-plugin": "node install.mjs"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/three": "^0.170.0",
+    "esbuild": "^0.21.0",
+    "obsidian": "^1.7.0",
+    "typescript": "^5.4.0"
+  }
+}
