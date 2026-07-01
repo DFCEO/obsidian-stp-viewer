@@ -32,21 +32,19 @@ type OcctFactoryFn = (config: {
 let occtInstance: OcctInstance | null = null;
 let occtInitPromise: Promise<OcctInstance> | null = null;
 
-async function getOcct(adapter: DataAdapter, configDir: string, pluginDir: string): Promise<OcctInstance> {
+async function getOcct(adapter: DataAdapter, pluginDir: string): Promise<OcctInstance> {
   if (occtInstance) return occtInstance;
   if (occtInitPromise) return occtInitPromise;
 
   occtInitPromise = (async (): Promise<OcctInstance> => {
-    // Read WASM via vault adapter (no fetch, no requestUrl, no file://)
-    const wasmPath = `${configDir}/plugins/stp-viewer/occt-import-js.wasm`;
-    const wasmBinary = await adapter.readBinary(wasmPath);
+    // WASM: loaded via vault adapter (no fs, no fetch)
+    const wasmBinary = await adapter.readBinary('.obsidian/plugins/stp-viewer/occt-import-js.wasm');
 
-    // Dynamic import with absolute file:// path (Electron app:// protocol breaks relative imports)
-    const moduleUrl = `file:///${pluginDir.replace(/\\/g, '/')}/occt-import-js.js`;
-    type OcctModule = { default?: OcctFactoryFn };
-    const occtModule = await import(moduleUrl) as unknown as OcctModule;
-    const factory: OcctFactoryFn = occtModule.default ?? (occtModule as unknown as OcctFactoryFn);
-    occtInstance = factory({ wasmBinary, locateFile: () => '' });
+    // JS module: require() is available in Electron (desktop-only plugin)
+    // Dynamic import() fails in Electron due to file:// path resolution issues
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const occtFactory = require(pluginDir + '/occt-import-js.js') as OcctFactoryFn;
+    occtInstance = occtFactory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
 
@@ -206,10 +204,11 @@ export class STPView extends ItemView {
 
       // Initialize occt with absolute file paths (Electron app:// breaks relatives)
       this.setInfo('Initializing OpenCascade...');
-      const configDir = this.app.vault.configDir;
+      // Initialize occt: WASM via adapter, JS via require (Electron-safe)
+      this.setInfo('Initializing OpenCascade...');
       const basePath = (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath();
-      const pluginDir = `${basePath}/${configDir}/plugins/stp-viewer`;
-      const occt = await getOcct(this.app.vault.adapter, configDir, pluginDir);
+      const pluginDir = basePath + '/.obsidian/plugins/stp-viewer';
+      const occt = await getOcct(this.app.vault.adapter, pluginDir);
 
       this.viewer = new STPViewer({
         container: this.canvasWrap,
