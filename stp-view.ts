@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, DataAdapter } from 'obsidian';
 import { STPViewer } from './viewer';
+import occtImportJs from 'occt-import-js';
 import type { OcctInstance } from 'occt-import-js';
 
 /* ── module-level occt cache ── */
@@ -13,25 +14,7 @@ async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctIns
 
   occtInitPromise = (async (): Promise<OcctInstance> => {
     const wasmBinary = await adapter.readBinary(`${configDir}/plugins/stp-viewer/occt-import-js.wasm`);
-
-    // Load JS via vault adapter → inject as <script> with CommonJS globals
-    // UMD wrapper detects global module/exports, uses CommonJS path
-    const jsSource = await adapter.read(`${configDir}/plugins/stp-viewer/occt-import-js.js`);
-    const g = window as unknown as Record<string, unknown>;
-    const exportsObj = {} as Record<string, unknown>;
-    const moduleObj = { exports: exportsObj };
-    g.__occtMod = moduleObj;
-    g.__occtExp = exportsObj;
-    const doc = (window as unknown as { activeDocument: Document }).activeDocument;
-    const el = doc.createElement('script');
-    el.textContent = `var module=window.__occtMod,exports=window.__occtExp;${jsSource}`;
-    doc.head.appendChild(el);
-    type OcctFactory = (cfg: { wasmBinary: ArrayBuffer; locateFile: () => string }) => OcctInstance;
-    const occtFactory = moduleObj.exports as unknown as OcctFactory;
-    // Cleanup globals
-    delete g.__occtMod;
-    delete g.__occtExp;
-    occtInstance = occtFactory({ wasmBinary, locateFile: () => '' });
+    occtInstance = occtImportJs({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
 
