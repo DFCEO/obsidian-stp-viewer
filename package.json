@@ -1,6 +1,6 @@
 {
   "name": "obsidian-stp-viewer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "3D STEP file previewer for Obsidian — powered by OpenCascade WASM + Three.js",
   "main": "main.js",
   "scripts": {
