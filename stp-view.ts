@@ -1,31 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, DataAdapter } from 'obsidian';
 import { STPViewer } from './viewer';
-
-/* ── occt type (match viewer.ts) ── */
-
-interface OcctMeshAttribute {
-  array: number[];
-}
-
-interface OcctMesh {
-  name?: string;
-  color?: [number, number, number];
-  attributes: {
-    position: OcctMeshAttribute;
-    normal?: OcctMeshAttribute;
-    color?: OcctMeshAttribute;
-  };
-  index: { array: number[] };
-}
-
-interface OcctInstance {
-  ReadStepFile: (content: Uint8Array) => Promise<{ meshes: OcctMesh[] }>;
-}
-
-type OcctFactoryFn = (config: {
-  wasmBinary?: ArrayBuffer;
-  locateFile?: (path: string) => string;
-}) => OcctInstance;
+import type { OcctInstance } from 'occt-import-js';
 
 /* ── module-level occt cache ── */
 
@@ -37,17 +12,16 @@ async function getOcct(adapter: DataAdapter): Promise<OcctInstance> {
   if (occtInitPromise) return occtInitPromise;
 
   occtInitPromise = (async (): Promise<OcctInstance> => {
-    // WASM: loaded via vault adapter
     const wasmBinary = await adapter.readBinary('.obsidian/plugins/stp-viewer/occt-import-js.wasm');
 
-    // JS module: read source via vault adapter, execute via Function (no require/import/fs)
+    // Load UMD module via vault adapter (no fs/require/import/fetch)
     const jsSource = await adapter.read('.obsidian/plugins/stp-viewer/occt-import-js.js');
-    // occt-import-js is UMD: when module.exports is present, it uses CommonJS path
-    const mod = { exports: {} as OcctFactoryFn };
+    // UMD wrapper: when called with module/exports, sets module.exports = factory()
+    // Then we call the factory with wasmBinary to get the OcctInstance
+    const mod = { exports: null as unknown };
     new Function('module', 'exports', jsSource)(mod, mod.exports);
-    const factory = mod.exports;
-
-    occtInstance = factory({ wasmBinary, locateFile: () => '' });
+    const occtFactory = mod.exports as (cfg: { wasmBinary: ArrayBuffer; locateFile: () => string }) => OcctInstance;
+    occtInstance = occtFactory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
 
@@ -102,12 +76,6 @@ export class STPView extends ItemView {
       await this.loadFileByPath(s.file);
     }
     return super.setState(state, result);
-  }
-
-  private getPluginBaseUrl(): string {
-    // requestUrl with relative path works from the plugin's context
-    // Plugin is loaded from <vault>/.obsidian/plugins/stp-viewer/
-    return '';
   }
 
   private async loadFileByPath(filePath: string): Promise<void> {
@@ -205,8 +173,6 @@ export class STPView extends ItemView {
         this.viewer = null;
       }
 
-      // Initialize occt with absolute file paths (Electron app:// breaks relatives)
-      this.setInfo('Initializing OpenCascade...');
       // Initialize occt: WASM + JS both via vault adapter, zero Node deps
       this.setInfo('Initializing OpenCascade...');
       const occt = await getOcct(this.app.vault.adapter);

@@ -1,26 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-
-/* ── occt-import-js type declarations ── */
-
-interface OcctMeshAttribute {
-  array: number[];
-}
-
-interface OcctMesh {
-  name?: string;
-  color?: [number, number, number];
-  attributes: {
-    position: OcctMeshAttribute;
-    normal?: OcctMeshAttribute;
-    color?: OcctMeshAttribute;
-  };
-  index: { array: number[] };
-}
-
-interface OcctInstance {
-  ReadStepFile: (content: Uint8Array) => Promise<{ meshes: OcctMesh[] }>;
-}
+import type { OcctInstance, OcctMesh } from 'occt-import-js';
 
 /* ── public types ── */
 

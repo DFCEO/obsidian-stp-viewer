@@ -1,12 +1,28 @@
 declare module 'occt-import-js' {
-  interface OcctInstance {
-    ReadStepFile: (content: Uint8Array) => Promise<{ meshes: unknown[] }>;
+  interface OcctMeshAttribute {
+    array: number[];
   }
 
-  function occtImportJs(config: {
+  interface OcctMesh {
+    name?: string;
+    color?: [number, number, number];
+    attributes: {
+      position: OcctMeshAttribute;
+      normal?: OcctMeshAttribute;
+      color?: OcctMeshAttribute;
+    };
+    index: { array: number[] };
+  }
+
+  interface OcctInstance {
+    ReadStepFile: (content: Uint8Array) => Promise<{ meshes: OcctMesh[] }>;
+  }
+
+  const occtImportJs: (config: {
     wasmBinary?: ArrayBuffer;
     locateFile?: (path: string) => string;
-  }): OcctInstance;
+  }) => OcctInstance;
 
-  export = occtImportJs;
+  export { OcctMeshAttribute, OcctMesh, OcctInstance };
+  export default occtImportJs;
 }

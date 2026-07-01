@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
-import { resolve, join } from 'path';
+import { copyFileSync, existsSync, mkdirSync } from 'fs';
+import { resolve } from 'path';
 
 const VAULT_PLUGIN_DIR = process.env.OBSIDIAN_VAULT
   ? resolve(process.env.OBSIDIAN_VAULT, '.obsidian', 'plugins', 'stp-viewer')
@@ -10,12 +10,11 @@ if (!existsSync(VAULT_PLUGIN_DIR)) {
 }
 
 const distDir = resolve('dist');
-const files = readdirSync(distDir);
+const requiredFiles = ['main.js', 'manifest.json', 'styles.css', 'occt-import-js.wasm'];
 
-for (const file of files) {
-  const src = join(distDir, file);
-  if (!statSync(src).isFile()) continue;
-  const dst = join(VAULT_PLUGIN_DIR, file);
+for (const file of requiredFiles) {
+  const src = resolve(distDir, file);
+  const dst = resolve(VAULT_PLUGIN_DIR, file);
   copyFileSync(src, dst);
   console.log(`  ✅ ${file}`);
 }
