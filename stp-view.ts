@@ -32,7 +32,7 @@ type OcctFactoryFn = (config: {
 let occtInstance: OcctInstance | null = null;
 let occtInitPromise: Promise<OcctInstance> | null = null;
 
-async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctInstance> {
+async function getOcct(adapter: DataAdapter, configDir: string, pluginDir: string): Promise<OcctInstance> {
   if (occtInstance) return occtInstance;
   if (occtInitPromise) return occtInitPromise;
 
@@ -41,9 +41,10 @@ async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctIns
     const wasmPath = `${configDir}/plugins/stp-viewer/occt-import-js.wasm`;
     const wasmBinary = await adapter.readBinary(wasmPath);
 
-    // Dynamic import with string literal (esbuild rewrites to relative path)
+    // Dynamic import with absolute file:// path (Electron app:// protocol breaks relative imports)
+    const moduleUrl = `file:///${pluginDir.replace(/\\/g, '/')}/occt-import-js.js`;
     type OcctModule = { default?: OcctFactoryFn };
-    const occtModule = await import('occt-import-js') as unknown as OcctModule;
+    const occtModule = await import(moduleUrl) as unknown as OcctModule;
     const factory: OcctFactoryFn = occtModule.default ?? (occtModule as unknown as OcctFactoryFn);
     occtInstance = factory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
@@ -203,9 +204,12 @@ export class STPView extends ItemView {
         this.viewer = null;
       }
 
-      // Initialize occt using vault adapter (no network requests)
+      // Initialize occt with absolute file paths (Electron app:// breaks relatives)
       this.setInfo('Initializing OpenCascade...');
-      const occt = await getOcct(this.app.vault.adapter, this.app.vault.configDir);
+      const configDir = this.app.vault.configDir;
+      const basePath = (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath();
+      const pluginDir = `${basePath}/${configDir}/plugins/stp-viewer`;
+      const occt = await getOcct(this.app.vault.adapter, configDir, pluginDir);
 
       this.viewer = new STPViewer({
         container: this.canvasWrap,
