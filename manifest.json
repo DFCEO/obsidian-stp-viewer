@@ -1,7 +1,7 @@
 {
   "id": "stp-viewer",
   "name": "STP Viewer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.7.0",
   "description": "3D STEP file previewer powered by OpenCascade WASM + Three.js. Rotate, zoom, and inspect CAD models directly in your vault.",
   "author": "ove",
