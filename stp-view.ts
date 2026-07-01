@@ -32,19 +32,22 @@ type OcctFactoryFn = (config: {
 let occtInstance: OcctInstance | null = null;
 let occtInitPromise: Promise<OcctInstance> | null = null;
 
-async function getOcct(adapter: DataAdapter, pluginDir: string): Promise<OcctInstance> {
+async function getOcct(adapter: DataAdapter): Promise<OcctInstance> {
   if (occtInstance) return occtInstance;
   if (occtInitPromise) return occtInitPromise;
 
   occtInitPromise = (async (): Promise<OcctInstance> => {
-    // WASM: loaded via vault adapter (no fs, no fetch)
+    // WASM: loaded via vault adapter
     const wasmBinary = await adapter.readBinary('.obsidian/plugins/stp-viewer/occt-import-js.wasm');
 
-    // JS module: require() is available in Electron (desktop-only plugin)
-    // Dynamic import() fails in Electron due to file:// path resolution issues
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const occtFactory = require(pluginDir + '/occt-import-js.js') as OcctFactoryFn;
-    occtInstance = occtFactory({ wasmBinary, locateFile: () => '' });
+    // JS module: read source via vault adapter, execute via Function (no require/import/fs)
+    const jsSource = await adapter.read('.obsidian/plugins/stp-viewer/occt-import-js.js');
+    // occt-import-js is UMD: when module.exports is present, it uses CommonJS path
+    const mod = { exports: {} as OcctFactoryFn };
+    new Function('module', 'exports', jsSource)(mod, mod.exports);
+    const factory = mod.exports;
+
+    occtInstance = factory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
 
@@ -204,11 +207,9 @@ export class STPView extends ItemView {
 
       // Initialize occt with absolute file paths (Electron app:// breaks relatives)
       this.setInfo('Initializing OpenCascade...');
-      // Initialize occt: WASM via adapter, JS via require (Electron-safe)
+      // Initialize occt: WASM + JS both via vault adapter, zero Node deps
       this.setInfo('Initializing OpenCascade...');
-      const basePath = (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath();
-      const pluginDir = basePath + '/.obsidian/plugins/stp-viewer';
-      const occt = await getOcct(this.app.vault.adapter, pluginDir);
+      const occt = await getOcct(this.app.vault.adapter);
 
       this.viewer = new STPViewer({
         container: this.canvasWrap,
