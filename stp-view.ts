@@ -22,9 +22,10 @@ async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctIns
     const moduleObj = { exports: exportsObj };
     g.__occtMod = moduleObj;
     g.__occtExp = exportsObj;
-    const el = document.createElement('script');
+    const doc = (window as unknown as { activeDocument: Document }).activeDocument;
+    const el = doc.createElement('script');
     el.textContent = `var module=window.__occtMod,exports=window.__occtExp;${jsSource}`;
-    document.head.appendChild(el);
+    doc.head.appendChild(el);
     type OcctFactory = (cfg: { wasmBinary: ArrayBuffer; locateFile: () => string }) => OcctInstance;
     const occtFactory = moduleObj.exports as unknown as OcctFactory;
     // Cleanup globals
