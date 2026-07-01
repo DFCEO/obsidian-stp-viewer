@@ -7,17 +7,23 @@ import type { OcctInstance } from 'occt-import-js';
 let occtInstance: OcctInstance | null = null;
 let occtInitPromise: Promise<OcctInstance> | null = null;
 
-async function getOcct(adapter: DataAdapter, configDir: string, pluginDir: string): Promise<OcctInstance> {
+async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctInstance> {
   if (occtInstance) return occtInstance;
   if (occtInitPromise) return occtInitPromise;
 
   occtInitPromise = (async (): Promise<OcctInstance> => {
     const wasmBinary = await adapter.readBinary(`${configDir}/plugins/stp-viewer/occt-import-js.wasm`);
 
-    // require() loads plugin-local UMD module — safe, no fs access
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const occtFactory = require(pluginDir + '/occt-import-js.js') as
-      (cfg: { wasmBinary: ArrayBuffer; locateFile: () => string }) => OcctInstance;
+    // Load JS via vault adapter → Blob URL → import() (no require/fs/eval)
+    // UMD wrapper needs CommonJS context; inject module+exports before the source
+    const jsSource = await adapter.read(`${configDir}/plugins/stp-viewer/occt-import-js.js`);
+    const wrappedSource = `var exports={};var module={exports:exports};${jsSource};globalThis.__occtFactory=module.exports;`;
+    const blob = new Blob([wrappedSource], { type: 'application/javascript' });
+    const blobUrl = URL.createObjectURL(blob);
+    await import(blobUrl);
+    URL.revokeObjectURL(blobUrl);
+    type OcctFactory = (cfg: { wasmBinary: ArrayBuffer; locateFile: () => string }) => OcctInstance;
+    const occtFactory = (globalThis as unknown as Record<string, OcctFactory>).__occtFactory;
     occtInstance = occtFactory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
@@ -171,10 +177,8 @@ export class STPView extends ItemView {
       }
 
       const configDir = this.app.vault.configDir;
-      const basePath = (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath();
-      const pluginDir = `${basePath}/${configDir}/plugins/stp-viewer`;
       this.setInfo('Initializing OpenCascade...');
-      const occt = await getOcct(this.app.vault.adapter, configDir, pluginDir);
+      const occt = await getOcct(this.app.vault.adapter, configDir);
 
       this.viewer = new STPViewer({
         container: this.canvasWrap,

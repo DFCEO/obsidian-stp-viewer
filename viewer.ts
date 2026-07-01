@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { OcctInstance, OcctMesh } from 'occt-import-js';
+import type { OcctInstance } from 'occt-import-js';
 
 /* ── public types ── */
 
