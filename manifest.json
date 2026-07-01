@@ -3,7 +3,7 @@
   "name": "STP Viewer",
   "version": "0.1.0",
   "minAppVersion": "1.7.0",
-  "description": "3D STEP file previewer — powered by OpenCascade WASM + Three.js. Rotate, zoom, and inspect CAD models directly in Obsidian.",
+  "description": "3D STEP file previewer powered by OpenCascade WASM + Three.js. Rotate, zoom, and inspect CAD models directly in your vault.",
   "author": "ove",
   "authorUrl": "",
   "isDesktopOnly": true

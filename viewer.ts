@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-interface OcctMeshAttribute { array: number[]; }
+/* ── occt-import-js type declarations ── */
+
+interface OcctMeshAttribute {
+  array: number[];
+}
+
 interface OcctMesh {
   name?: string;
   color?: [number, number, number];
@@ -12,30 +17,52 @@ interface OcctMesh {
   };
   index: { array: number[] };
 }
-type OcctInstance = {
+
+interface OcctInstance {
   ReadStepFile: (content: Uint8Array) => Promise<{ meshes: OcctMesh[] }>;
-};
+}
+
+type OcctFactoryFn = (config: {
+  wasmBinary?: ArrayBuffer;
+  locateFile?: (path: string) => string;
+}) => OcctInstance;
+
+/* ── lazy occt singleton (no fs, no require) ── */
 
 let occtInstance: OcctInstance | null = null;
 let occtInitPromise: Promise<OcctInstance> | null = null;
+
+function toFileUrl(dir: string, file: string): string {
+  return 'file://' + dir.replace(/\\/g, '/') + file;
+}
 
 async function getOcct(): Promise<OcctInstance> {
   if (occtInstance) return occtInstance;
   if (occtInitPromise) return occtInitPromise;
 
-  occtInitPromise = (async () => {
-    const baseDir = (window as any).__STP_VIEWER_DIR__ || '';
-    const fs = require('fs');
-    const wasmBinary = fs.readFileSync(baseDir + 'occt-import-js.wasm');
-    occtInstance = require(baseDir + 'occt-import-js.js')({
-      wasmBinary,
-      locateFile: (path: string) => baseDir + path,
-    });
+  occtInitPromise = (async (): Promise<OcctInstance> => {
+    const baseDir = window.__STP_VIEWER_DIR__ || '';
+
+    // Load WASM via fetch (avoids Node fs module)
+    const wasmResponse = await fetch(toFileUrl(baseDir, 'occt-import-js.wasm'));
+    if (!wasmResponse.ok) {
+      throw new Error(`Failed to load WASM: ${wasmResponse.status}`);
+    }
+    const wasmBinary = await wasmResponse.arrayBuffer();
+
+    // Dynamic import (avoids require())
+    const occtModule: { default?: OcctFactoryFn } = await import(
+      /* @vite-ignore */ toFileUrl(baseDir, 'occt-import-js.js')
+    );
+    const factory: OcctFactoryFn = occtModule.default ?? (occtModule as unknown as OcctFactoryFn);
+    occtInstance = factory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
 
   return occtInitPromise;
 }
+
+/* ── public types ── */
 
 export interface LoadedStats {
   meshes: number;
@@ -48,6 +75,8 @@ export interface STPViewerOptions {
   onLoaded?: (stats: LoadedStats) => void;
   onError?: (err: Error) => void;
 }
+
+/* ── STPViewer ── */
 
 export class STPViewer {
   private container: HTMLElement;
@@ -114,15 +143,15 @@ export class STPViewer {
 
     this.setupLights();
 
-    this.onResize = this.onResize.bind(this);
+    this.onResize = this.onResize.bind(this) as () => void;
     window.addEventListener('resize', this.onResize);
-    this.resizeObserver = new ResizeObserver(() => this.onResize());
+    this.resizeObserver = new ResizeObserver(() => { this.onResize(); });
     this.resizeObserver.observe(this.container);
 
     this.animate();
   }
 
-  private setupLights() {
+  private setupLights(): void {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const key = new THREE.DirectionalLight(0xffffff, 0.8);
     key.position.set(5, 10, 7);
@@ -139,22 +168,22 @@ export class STPViewer {
     return g;
   }
 
-  private animate = () => {
-    this.animationId = requestAnimationFrame(this.animate);
+  private animate = (): void => {
+    this.animationId = window.requestAnimationFrame(this.animate);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
 
-  private onResize() {
+  private onResize: () => void = (): void => {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
     if (w === 0 || h === 0) return;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
-  }
+  };
 
-  async loadSTP(data: ArrayBuffer) {
+  async loadSTP(data: ArrayBuffer): Promise<void> {
     this.onProgress?.('Initializing OpenCascade...');
     const occt = await getOcct();
 
@@ -195,7 +224,7 @@ export class STPViewer {
       geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.index.array), 1));
       geometry.computeBoundingSphere();
 
-      const hasColor = mesh.color && !mesh.attributes.color;
+      const hasColor = Boolean(mesh.color && !mesh.attributes.color);
       const material = new THREE.MeshStandardMaterial({
         color: hasColor
           ? new THREE.Color(mesh.color![0], mesh.color![1], mesh.color![2])
@@ -223,7 +252,7 @@ export class STPViewer {
     this.onLoaded?.({ meshes: this.modelGroup.children.length, triangles });
   }
 
-  fitCameraToModel() {
+  fitCameraToModel(): void {
     const box = new THREE.Box3().setFromObject(this.modelGroup);
     if (box.isEmpty()) return;
 
@@ -258,7 +287,7 @@ export class STPViewer {
     this.updateScaleBar(maxDim);
   }
 
-  setView(dir: 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso') {
+  setView(dir: 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso'): void {
     const center = new THREE.Vector3();
     new THREE.Box3().setFromObject(this.modelGroup).getCenter(center);
     const d = this.camera.position.distanceTo(center);
@@ -279,7 +308,7 @@ export class STPViewer {
     this.controls.update();
   }
 
-  setDisplayMode(mode: 'solid' | 'wireframe') {
+  setDisplayMode(mode: 'solid' | 'wireframe'): void {
     this.modelGroup.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
         child.material.wireframe = mode === 'wireframe';
@@ -287,15 +316,15 @@ export class STPViewer {
     });
   }
 
-  setEdgeVisible(visible: boolean) {
+  setEdgeVisible(visible: boolean): void {
     this.edgeGroup.visible = visible;
   }
 
-  setAxesVisible(visible: boolean) {
+  setAxesVisible(visible: boolean): void {
     this.axesGroup.visible = visible;
   }
 
-  setScale1To1() {
+  setScale1To1(): void {
     const box = new THREE.Box3().setFromObject(this.modelGroup);
     if (box.isEmpty()) return;
     const center = new THREE.Vector3();
@@ -313,7 +342,7 @@ export class STPViewer {
     this.controls.update();
   }
 
-  private buildThickAxes(length: number, radius: number) {
+  private buildThickAxes(length: number, radius: number): void {
     const colors = [0xff3333, 0x33ff33, 0x3388ff];
     const labels = ['X', 'Y', 'Z'];
     const dirs = [
@@ -321,6 +350,8 @@ export class STPViewer {
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(0, 0, 1),
     ];
+
+    const doc = this.container.ownerDocument;
 
     for (let i = 0; i < 3; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: colors[i], roughness: 0.3, metalness: 0 });
@@ -342,14 +373,16 @@ export class STPViewer {
       this.axesGroup.add(cone);
 
       // Sprite label
-      const canvas = document.createElement('canvas');
+      const canvas = doc.createElement('canvas');
       canvas.width = 64; canvas.height = 64;
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#' + colors[i].toString(16).padStart(6, '0');
-      ctx.font = 'bold 40px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(labels[i], 32, 32);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#' + colors[i].toString(16).padStart(6, '0');
+        ctx.font = 'bold 40px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labels[i], 32, 32);
+      }
       const tex = new THREE.CanvasTexture(canvas);
       const sprite = new THREE.Sprite(
         new THREE.SpriteMaterial({ map: tex, depthTest: false })
@@ -360,24 +393,22 @@ export class STPViewer {
     }
   }
 
-  updateScaleBar(maxDim: number) {
-    const old = this.container.querySelector('.stp-scale-bar');
+  updateScaleBar(maxDim: number): void {
+    const old = this.container.querySelector('.stp-viewer-scale-bar');
     if (old) old.remove();
 
     const ref = this.roundToNice(maxDim * 0.35);
     const barPx = Math.min((ref / maxDim) * 200, 200);
 
-    const wrap = document.createElement('div');
-    wrap.className = 'stp-scale-bar';
-    wrap.style.cssText =
-      'position:absolute;bottom:8px;left:16px;display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none;z-index:10';
+    const wrap = this.container.ownerDocument.createElement('div');
+    wrap.className = 'stp-viewer-scale-bar';
 
-    const bar = document.createElement('div');
-    bar.style.cssText =
-      `width:${barPx}px;height:3px;background:var(--text-muted)`;
+    const bar = this.container.ownerDocument.createElement('div');
+    bar.className = 'stp-viewer-scale-bar-line';
+    bar.style.width = `${barPx}px`;
 
-    const label = document.createElement('span');
-    label.style.cssText = 'font-size:11px;color:var(--text-muted)';
+    const label = this.container.ownerDocument.createElement('span');
+    label.className = 'stp-viewer-scale-bar-label';
     label.textContent = ref.toFixed(0) + ' mm';
 
     wrap.appendChild(bar);
@@ -386,14 +417,14 @@ export class STPViewer {
     this.container.appendChild(wrap);
   }
 
-  private roundToNice(n: number): number {
-    const mag = Math.pow(10, Math.floor(Math.log10(n)));
+  private roundToNice(this: void, n: number): number {
+    const mag = 10 ** Math.floor(Math.log10(n));
     const norm = n / mag;
     const nice = norm <= 1.5 ? 1 : norm <= 3 ? 2 : norm <= 7 ? 5 : 10;
     return nice * mag;
   }
 
-  dispose() {
+  dispose(): void {
     cancelAnimationFrame(this.animationId);
     window.removeEventListener('resize', this.onResize);
     this.resizeObserver.disconnect();

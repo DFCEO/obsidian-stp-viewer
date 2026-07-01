@@ -1,5 +1,11 @@
-import { Plugin, WorkspaceLeaf, Notice, TFile } from 'obsidian';
+import { Plugin } from 'obsidian';
 import { STPView, STP_VIEW_TYPE } from './stp-view';
+
+declare global {
+  interface Window {
+    __STP_VIEWER_DIR__?: string;
+  }
+}
 
 export default class STPViewerPlugin extends Plugin {
   async onload() {
@@ -9,7 +15,7 @@ export default class STPViewerPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on('file-open', (file) => {
         if (file && (file.extension === 'stp' || file.extension === 'step')) {
-          this.app.workspace.getLeaf('tab').setViewState({
+          void this.app.workspace.getLeaf('tab').setViewState({
             type: STP_VIEW_TYPE,
             state: { file: file.path },
             active: true,
@@ -19,8 +25,11 @@ export default class STPViewerPlugin extends Plugin {
     );
 
     // Path needed by viewer.ts to load occt-import-js WASM module
-    (window as any).__STP_VIEWER_DIR__ =
-      this.app.vault.adapter.getBasePath() + '/.obsidian/plugins/stp-viewer/';
+    // getBasePath exists on FileSystemAdapter at runtime but not in public types
+    interface FileSystemAdapter { getBasePath(): string; }
+    const configDir = this.app.vault.configDir;
+    const basePath = (this.app.vault.adapter as unknown as FileSystemAdapter).getBasePath();
+    window.__STP_VIEWER_DIR__ = `${basePath}/${configDir}/plugins/stp-viewer/`;
 
     console.log('STP Viewer plugin loaded');
   }

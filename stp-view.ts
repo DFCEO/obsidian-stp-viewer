@@ -1,7 +1,13 @@
-import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, ViewStateResult } from 'obsidian';
 import { STPViewer } from './viewer';
 
 export const STP_VIEW_TYPE = 'stp-viewer';
+
+type ViewDirection = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso';
+
+interface STPViewState {
+  file?: string;
+}
 
 export class STPView extends ItemView {
   private viewer: STPViewer | null = null;
@@ -21,7 +27,7 @@ export class STPView extends ItemView {
   getDisplayText(): string { return 'STP Viewer'; }
   getIcon(): string { return 'box'; }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const root = this.containerEl.children[1] as HTMLElement;
     root.empty();
     root.classList.add('stp-viewer-container');
@@ -35,14 +41,15 @@ export class STPView extends ItemView {
     this.setInfo('Ready');
   }
 
-  async setState(state: any, result: any): Promise<void> {
-    if (state?.file) {
-      await this.loadFileByPath(state.file);
+  async setState(state: unknown, result: ViewStateResult): Promise<void> {
+    const s = state as STPViewState | undefined;
+    if (s?.file) {
+      await this.loadFileByPath(s.file);
     }
     return super.setState(state, result);
   }
 
-  private async loadFileByPath(filePath: string) {
+  private async loadFileByPath(filePath: string): Promise<void> {
     if (filePath === this.currentFilePath) return;
     this.currentFilePath = filePath;
 
@@ -54,16 +61,16 @@ export class STPView extends ItemView {
     await this.loadSTPFile(file);
   }
 
-  private buildToolbar() {
+  private buildToolbar(): void {
     if (!this.toolbarEl) return;
     this.toolbarEl.empty();
 
-    const views: [string, string][] = [
+    const views: [ViewDirection, string][] = [
       ['iso', 'ISO'], ['front', 'Front'], ['right', 'Right'], ['top', 'Top'],
     ];
     for (const [key, label] of views) {
       const btn = this.toolbarEl.createEl('button', { text: label });
-      btn.addEventListener('click', () => this.viewer?.setView(key as any));
+      btn.addEventListener('click', () => { this.viewer?.setView(key); });
     }
 
     this.toolbarEl.createDiv('separator');
@@ -99,7 +106,7 @@ export class STPView extends ItemView {
 
     const oneBtn = this.toolbarEl.createEl('button', { text: '1:1' });
     oneBtn.title = 'Actual size';
-    oneBtn.addEventListener('click', () => this.viewer?.setScale1To1());
+    oneBtn.addEventListener('click', () => { this.viewer?.setScale1To1(); });
 
     const fitBtn = this.toolbarEl.createEl('button', { text: 'Fit' });
 
@@ -114,7 +121,7 @@ export class STPView extends ItemView {
       else axesBtn.removeClass('active');
       this.viewer?.setAxesVisible(axesOn);
     });
-    fitBtn.addEventListener('click', () => this.viewer?.fitCameraToModel());
+    fitBtn.addEventListener('click', () => { this.viewer?.fitCameraToModel(); });
 
     const resetBtn = this.toolbarEl.createEl('button', { text: 'Reset' });
     resetBtn.addEventListener('click', () => {
@@ -126,7 +133,7 @@ export class STPView extends ItemView {
     });
   }
 
-  async loadSTPFile(file: TFile) {
+  async loadSTPFile(file: TFile): Promise<void> {
     if (!this.canvasWrap) return;
     this.setInfo(`Loading: ${file.name}`);
 
@@ -140,25 +147,26 @@ export class STPView extends ItemView {
 
       this.viewer = new STPViewer({
         container: this.canvasWrap,
-        onProgress: (msg) => this.setInfo(msg),
+        onProgress: (msg: string) => { this.setInfo(msg); },
         onLoaded: (stats) => {
           this.setInfo(`${file.name} — ${stats.meshes} parts, ${stats.triangles.toLocaleString()} △`);
         },
-        onError: (err) => this.showError(err.message),
+        onError: (err: Error) => { this.showError(err.message); },
       });
 
       await this.viewer.loadSTP(arrayBuffer);
-    } catch (err: any) {
-      console.error('STP parse error:', err);
-      this.showError(err.message || 'Failed to parse STP file');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to parse STP file';
+      console.error('STP parse error:', message);
+      this.showError(message);
     }
   }
 
-  private setInfo(msg: string) {
+  private setInfo(msg: string): void {
     if (this.infoEl) this.infoEl.setText(msg);
   }
 
-  private showError(msg: string) {
+  private showError(msg: string): void {
     if (!this.canvasWrap) return;
     this.canvasWrap.empty();
     const errDiv = this.canvasWrap.createDiv('stp-viewer-error');
@@ -167,7 +175,7 @@ export class STPView extends ItemView {
     if (this.infoEl) this.infoEl.setText(`Error: ${msg}`);
   }
 
-  async onClose() {
+  async onClose(): Promise<void> {
     this.viewer?.dispose();
     this.viewer = null;
   }
