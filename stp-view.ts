@@ -14,16 +14,22 @@ async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctIns
   occtInitPromise = (async (): Promise<OcctInstance> => {
     const wasmBinary = await adapter.readBinary(`${configDir}/plugins/stp-viewer/occt-import-js.wasm`);
 
-    // Load JS via vault adapter → Blob URL → import() (no require/fs/eval)
-    // UMD wrapper needs CommonJS context; inject module+exports before the source
+    // Load JS via vault adapter → inject as <script> with CommonJS globals
+    // UMD wrapper detects global module/exports, uses CommonJS path
     const jsSource = await adapter.read(`${configDir}/plugins/stp-viewer/occt-import-js.js`);
-    const wrappedSource = `var exports={};var module={exports:exports};${jsSource};globalThis.__occtFactory=module.exports;`;
-    const blob = new Blob([wrappedSource], { type: 'application/javascript' });
-    const blobUrl = URL.createObjectURL(blob);
-    await import(blobUrl);
-    URL.revokeObjectURL(blobUrl);
+    const g = window as unknown as Record<string, unknown>;
+    const exportsObj = {} as Record<string, unknown>;
+    const moduleObj = { exports: exportsObj };
+    g.__occtMod = moduleObj;
+    g.__occtExp = exportsObj;
+    const el = document.createElement('script');
+    el.textContent = `var module=window.__occtMod,exports=window.__occtExp;${jsSource}`;
+    document.head.appendChild(el);
     type OcctFactory = (cfg: { wasmBinary: ArrayBuffer; locateFile: () => string }) => OcctInstance;
-    const occtFactory = (globalThis as unknown as Record<string, OcctFactory>).__occtFactory;
+    const occtFactory = moduleObj.exports as unknown as OcctFactory;
+    // Cleanup globals
+    delete g.__occtMod;
+    delete g.__occtExp;
     occtInstance = occtFactory({ wasmBinary, locateFile: () => '' });
     return occtInstance;
   })();
