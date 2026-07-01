@@ -22,46 +22,6 @@ interface OcctInstance {
   ReadStepFile: (content: Uint8Array) => Promise<{ meshes: OcctMesh[] }>;
 }
 
-type OcctFactoryFn = (config: {
-  wasmBinary?: ArrayBuffer;
-  locateFile?: (path: string) => string;
-}) => OcctInstance;
-
-/* ── lazy occt singleton (no fs, no require) ── */
-
-let occtInstance: OcctInstance | null = null;
-let occtInitPromise: Promise<OcctInstance> | null = null;
-
-function toFileUrl(dir: string, file: string): string {
-  return 'file://' + dir.replace(/\\/g, '/') + file;
-}
-
-async function getOcct(): Promise<OcctInstance> {
-  if (occtInstance) return occtInstance;
-  if (occtInitPromise) return occtInitPromise;
-
-  occtInitPromise = (async (): Promise<OcctInstance> => {
-    const baseDir = window.__STP_VIEWER_DIR__ || '';
-
-    // Load WASM via fetch (avoids Node fs module)
-    const wasmResponse = await fetch(toFileUrl(baseDir, 'occt-import-js.wasm'));
-    if (!wasmResponse.ok) {
-      throw new Error(`Failed to load WASM: ${wasmResponse.status}`);
-    }
-    const wasmBinary = await wasmResponse.arrayBuffer();
-
-    // Dynamic import (avoids require())
-    const occtModule: { default?: OcctFactoryFn } = await import(
-      /* @vite-ignore */ toFileUrl(baseDir, 'occt-import-js.js')
-    );
-    const factory: OcctFactoryFn = occtModule.default ?? (occtModule as unknown as OcctFactoryFn);
-    occtInstance = factory({ wasmBinary, locateFile: () => '' });
-    return occtInstance;
-  })();
-
-  return occtInitPromise;
-}
-
 /* ── public types ── */
 
 export interface LoadedStats {
@@ -71,6 +31,7 @@ export interface LoadedStats {
 
 export interface STPViewerOptions {
   container: HTMLElement;
+  occt: OcctInstance;
   onProgress?: (msg: string) => void;
   onLoaded?: (stats: LoadedStats) => void;
   onError?: (err: Error) => void;
@@ -80,6 +41,7 @@ export interface STPViewerOptions {
 
 export class STPViewer {
   private container: HTMLElement;
+  private occt: OcctInstance;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
@@ -96,6 +58,7 @@ export class STPViewer {
 
   constructor(options: STPViewerOptions) {
     this.container = options.container;
+    this.occt = options.occt;
     this.onProgress = options.onProgress;
     this.onLoaded = options.onLoaded;
     this.onError = options.onError;
@@ -143,7 +106,7 @@ export class STPViewer {
 
     this.setupLights();
 
-    this.onResize = this.onResize.bind(this) as () => void;
+    this.onResize = this.onResize.bind(this);
     window.addEventListener('resize', this.onResize);
     this.resizeObserver = new ResizeObserver(() => { this.onResize(); });
     this.resizeObserver.observe(this.container);
@@ -184,11 +147,8 @@ export class STPViewer {
   };
 
   async loadSTP(data: ArrayBuffer): Promise<void> {
-    this.onProgress?.('Initializing OpenCascade...');
-    const occt = await getOcct();
-
     this.onProgress?.('Parsing STEP file...');
-    const result = await occt.ReadStepFile(new Uint8Array(data));
+    const result = await this.occt.ReadStepFile(new Uint8Array(data));
 
     if (!result.meshes || result.meshes.length === 0) {
       throw new Error('STEP file parsed but contains no geometry');
@@ -413,7 +373,6 @@ export class STPViewer {
 
     wrap.appendChild(bar);
     wrap.appendChild(label);
-    this.container.style.position = 'relative';
     this.container.appendChild(wrap);
   }
 

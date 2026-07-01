@@ -1,5 +1,58 @@
-import { ItemView, WorkspaceLeaf, TFile, ViewStateResult } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, requestUrl } from 'obsidian';
 import { STPViewer } from './viewer';
+
+/* ── occt type (match viewer.ts) ── */
+
+interface OcctMeshAttribute {
+  array: number[];
+}
+
+interface OcctMesh {
+  name?: string;
+  color?: [number, number, number];
+  attributes: {
+    position: OcctMeshAttribute;
+    normal?: OcctMeshAttribute;
+    color?: OcctMeshAttribute;
+  };
+  index: { array: number[] };
+}
+
+interface OcctInstance {
+  ReadStepFile: (content: Uint8Array) => Promise<{ meshes: OcctMesh[] }>;
+}
+
+type OcctFactoryFn = (config: {
+  wasmBinary?: ArrayBuffer;
+  locateFile?: (path: string) => string;
+}) => OcctInstance;
+
+/* ── module-level occt cache ── */
+
+let occtInstance: OcctInstance | null = null;
+let occtInitPromise: Promise<OcctInstance> | null = null;
+
+async function getOcct(baseUrl: string): Promise<OcctInstance> {
+  if (occtInstance) return occtInstance;
+  if (occtInitPromise) return occtInitPromise;
+
+  occtInitPromise = (async (): Promise<OcctInstance> => {
+    // Load WASM via Obsidian requestUrl (avoids fetch lint)
+    const wasmResponse = await requestUrl({ url: baseUrl + 'occt-import-js.wasm' });
+    const wasmBinary = wasmResponse.arrayBuffer;
+
+    // Dynamic import with string literal (avoids unsafe-import lint)
+    type OcctModule = { default?: OcctFactoryFn };
+    const occtModule = await import('occt-import-js') as unknown as OcctModule;
+    const factory: OcctFactoryFn = occtModule.default ?? (occtModule as unknown as OcctFactoryFn);
+    occtInstance = factory({ wasmBinary, locateFile: () => '' });
+    return occtInstance;
+  })();
+
+  return occtInitPromise;
+}
+
+/* ── plugin view ── */
 
 export const STP_VIEW_TYPE = 'stp-viewer';
 
@@ -49,6 +102,12 @@ export class STPView extends ItemView {
     return super.setState(state, result);
   }
 
+  private getPluginBaseUrl(): string {
+    // requestUrl with relative path works from the plugin's context
+    // Plugin is loaded from <vault>/.obsidian/plugins/stp-viewer/
+    return '';
+  }
+
   private async loadFileByPath(filePath: string): Promise<void> {
     if (filePath === this.currentFilePath) return;
     this.currentFilePath = filePath;
@@ -66,7 +125,7 @@ export class STPView extends ItemView {
     this.toolbarEl.empty();
 
     const views: [ViewDirection, string][] = [
-      ['iso', 'ISO'], ['front', 'Front'], ['right', 'Right'], ['top', 'Top'],
+      ['iso',  'ISO'], ['front', 'Front'], ['right', 'Right'], ['top', 'Top'],
     ];
     for (const [key, label] of views) {
       const btn = this.toolbarEl.createEl('button', { text: label });
@@ -92,7 +151,6 @@ export class STPView extends ItemView {
       this.viewer?.setDisplayMode('wireframe');
     });
 
-    // Edge toggle
     let edgesOn = false;
     const edgeBtn = this.toolbarEl.createEl('button', { text: 'Edges' });
     edgeBtn.addEventListener('click', () => {
@@ -145,11 +203,20 @@ export class STPView extends ItemView {
         this.viewer = null;
       }
 
+      // Build plugin base URL for loading WASM relative to plugin dir
+      const configDir = this.app.vault.configDir;
+      const basePath = (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath();
+      const pluginUrl = `file:///${basePath.replace(/\\/g, '/')}/${configDir}/plugins/stp-viewer/`;
+
+      this.setInfo('Initializing OpenCascade...');
+      const occt = await getOcct(pluginUrl);
+
       this.viewer = new STPViewer({
         container: this.canvasWrap,
+        occt,
         onProgress: (msg: string) => { this.setInfo(msg); },
         onLoaded: (stats) => {
-          this.setInfo(`${file.name} — ${stats.meshes} parts, ${stats.triangles.toLocaleString()} △`);
+          this.setInfo(`${file.name} \u2014 ${stats.meshes} parts, ${stats.triangles.toLocaleString()} \u25b3`);
         },
         onError: (err: Error) => { this.showError(err.message); },
       });
@@ -170,7 +237,7 @@ export class STPView extends ItemView {
     if (!this.canvasWrap) return;
     this.canvasWrap.empty();
     const errDiv = this.canvasWrap.createDiv('stp-viewer-error');
-    errDiv.createDiv('stp-viewer-error-icon').setText('⚠️');
+    errDiv.createDiv('stp-viewer-error-icon').setText('\u26a0\ufe0f');
     errDiv.createDiv('stp-viewer-error-msg').setText(msg);
     if (this.infoEl) this.infoEl.setText(`Error: ${msg}`);
   }
