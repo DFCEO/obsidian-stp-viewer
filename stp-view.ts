@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, requestUrl } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, ViewStateResult, DataAdapter } from 'obsidian';
 import { STPViewer } from './viewer';
 
 /* ── occt type (match viewer.ts) ── */
@@ -32,16 +32,16 @@ type OcctFactoryFn = (config: {
 let occtInstance: OcctInstance | null = null;
 let occtInitPromise: Promise<OcctInstance> | null = null;
 
-async function getOcct(baseUrl: string): Promise<OcctInstance> {
+async function getOcct(adapter: DataAdapter, configDir: string): Promise<OcctInstance> {
   if (occtInstance) return occtInstance;
   if (occtInitPromise) return occtInitPromise;
 
   occtInitPromise = (async (): Promise<OcctInstance> => {
-    // Load WASM via Obsidian requestUrl (avoids fetch lint)
-    const wasmResponse = await requestUrl({ url: baseUrl + 'occt-import-js.wasm' });
-    const wasmBinary = wasmResponse.arrayBuffer;
+    // Read WASM via vault adapter (no fetch, no requestUrl, no file://)
+    const wasmPath = `${configDir}/plugins/stp-viewer/occt-import-js.wasm`;
+    const wasmBinary = await adapter.readBinary(wasmPath);
 
-    // Dynamic import with string literal (avoids unsafe-import lint)
+    // Dynamic import with string literal (esbuild rewrites to relative path)
     type OcctModule = { default?: OcctFactoryFn };
     const occtModule = await import('occt-import-js') as unknown as OcctModule;
     const factory: OcctFactoryFn = occtModule.default ?? (occtModule as unknown as OcctFactoryFn);
@@ -203,13 +203,9 @@ export class STPView extends ItemView {
         this.viewer = null;
       }
 
-      // Build plugin base URL for loading WASM relative to plugin dir
-      const configDir = this.app.vault.configDir;
-      const basePath = (this.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath();
-      const pluginUrl = `file:///${basePath.replace(/\\/g, '/')}/${configDir}/plugins/stp-viewer/`;
-
+      // Initialize occt using vault adapter (no network requests)
       this.setInfo('Initializing OpenCascade...');
-      const occt = await getOcct(pluginUrl);
+      const occt = await getOcct(this.app.vault.adapter, this.app.vault.configDir);
 
       this.viewer = new STPViewer({
         container: this.canvasWrap,
